@@ -3,13 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Advanced Custom SoundCloud Player</title>
+    <title>Pro SoundCloud Player with Synced Lyrics</title>
     <style>
-        /* --- CSS Variables for Light/Dark Mode --- */
+        /* --- CSS Variables --- */
         :root {
             --bg-color: #f4f4f9;
             --surface-color: #ffffff;
             --text-color: #333333;
+            --text-muted: #888888;
             --accent-color: #ff5500;
             --accent-hover: #cc4400;
             --border-color: #dddddd;
@@ -19,280 +20,378 @@
             --bg-color: #121212;
             --surface-color: #1e1e1e;
             --text-color: #e0e0e0;
+            --text-muted: #666666;
             --border-color: #333333;
         }
 
         /* --- Global Styles --- */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--bg-color);
-            color: var(--text-color);
-            margin: 0;
-            display: flex;
-            height: 100vh;
+            background-color: var(--bg-color); color: var(--text-color);
+            margin: 0; display: flex; height: 100vh; overflow: hidden;
             transition: background-color 0.3s, color 0.3s;
         }
 
-        button {
-            cursor: pointer;
-            border: none;
-            border-radius: 4px;
-            padding: 8px 12px;
-            font-weight: bold;
-            transition: background-color 0.2s;
-        }
-
-        .btn-primary {
-            background-color: var(--accent-color);
-            color: white;
-        }
-
-        .btn-primary:hover { background-color: var(--accent-hover); }
-
-        .btn-secondary {
-            background-color: var(--border-color);
-            color: var(--text-color);
-        }
+        button { cursor: pointer; border: none; border-radius: 4px; padding: 8px 12px; font-weight: bold; }
+        .btn-primary { background-color: var(--accent-color); color: white; }
+        .btn-secondary { background-color: var(--border-color); color: var(--text-color); }
 
         /* --- Layout --- */
         .sidebar {
-            width: 250px;
-            background-color: var(--surface-color);
-            border-right: 1px solid var(--border-color);
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
+            width: 250px; background-color: var(--surface-color); border-right: 1px solid var(--border-color);
+            padding: 20px; display: flex; flex-direction: column; gap: 15px; overflow-y: auto; z-index: 10;
         }
 
         .main-content {
-            flex-grow: 1;
-            padding: 20px;
-            overflow-y: auto;
-            padding-bottom: 100px; /* Space for bottom player */
+            flex-grow: 1; padding: 20px; overflow-y: auto; padding-bottom: 120px; position: relative;
         }
 
-        /* --- UI Elements --- */
-        .search-bar {
-            width: 100%;
-            padding: 10px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            background-color: var(--surface-color);
-            color: var(--text-color);
-            margin-bottom: 20px;
-            box-sizing: border-box;
-        }
-
-        .nav-item {
-            padding: 10px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
+        .nav-item { padding: 10px; border-radius: 4px; cursor: pointer; }
         .nav-item:hover { background-color: var(--border-color); }
 
-        .track-list {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
-
         .track-item {
-            background-color: var(--surface-color);
-            padding: 15px;
-            border-radius: 8px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border: 1px solid var(--border-color);
+            background-color: var(--surface-color); padding: 15px; border-radius: 8px;
+            display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); margin-bottom: 10px;
         }
 
-        .track-info h4 { margin: 0 0 5px 0; }
-        .track-info p { 
-            margin: 0; 
-            font-size: 0.9em; 
-            color: var(--accent-color); 
-            cursor: pointer;
+        /* --- Expanded Player UI --- */
+        .expanded-view {
+            position: absolute; top: 100%; left: 0; width: 100%; height: calc(100% - 90px);
+            background-color: var(--bg-color); z-index: 5; transition: top 0.4s ease-in-out;
+            display: flex; padding: 40px; box-sizing: border-box; gap: 40px;
         }
+        .expanded-view.active { top: 0; }
+
+        .cover-art-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        #cover-art { width: 300px; height: 300px; border-radius: 12px; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.3); background-color: var(--border-color); margin-bottom: 20px; }
+        
+        .censor-toggle { display: flex; align-items: center; gap: 10px; margin-top: 15px; background: var(--surface-color); padding: 10px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
+        .censor-toggle input { cursor: pointer; }
+
+        /* --- Synced Lyrics --- */
+        .lyrics-container { 
+            flex: 1; overflow-y: auto; padding-right: 20px; font-size: 1.5em; 
+            line-height: 1.8; font-weight: bold; scroll-behavior: smooth;
+            /* Hide scrollbar for cleaner look */
+            -ms-overflow-style: none; scrollbar-width: none;
+        }
+        .lyrics-container::-webkit-scrollbar { display: none; }
+
+        .lyric-line { color: var(--text-muted); transition: color 0.3s, transform 0.3s; margin-bottom: 15px; transform-origin: left; cursor: pointer; }
+        .lyric-line.active { color: var(--text-color); transform: scale(1.05); }
 
         /* --- Bottom Player Bar --- */
         .player-bar {
-            position: fixed;
-            bottom: 0;
-            left: 0;
-            width: 100%;
-            background-color: var(--surface-color);
-            border-top: 1px solid var(--border-color);
-            padding: 15px 20px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            box-sizing: border-box;
-            box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+            position: fixed; bottom: 0; left: 0; width: 100%; background-color: var(--surface-color);
+            border-top: 1px solid var(--border-color); padding: 15px 20px; display: flex; align-items: center;
+            justify-content: space-between; box-sizing: border-box; z-index: 20;
         }
-
-        .now-playing { font-weight: bold; width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .now-playing { display: flex; align-items: center; gap: 15px; width: 300px; }
+        .now-playing img { width: 50px; height: 50px; border-radius: 4px; background-color: var(--border-color); object-fit: cover; }
+        .now-playing div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         
-        #sc-widget { display: none; } /* Hide the actual iframe */
+        #sc-widget { display: none; }
     </style>
 </head>
 <body>
 
     <div class="sidebar">
-        <h2>MyMusic App</h2>
-        <button id="theme-toggle" class="btn-secondary">Toggle Dark Mode</button>
+        <h2>MyMusic Pro</h2>
+        <button id="theme-toggle" class="btn-secondary">Toggle Theme</button>
         <hr style="width: 100%; border-color: var(--border-color);">
         <div class="nav-item" onclick="renderView('home')">🏠 Home / All Tracks</div>
-        <div class="nav-item" onclick="renderView('playlist')">🎵 My Playlist</div>
+        <hr style="width: 100%; border-color: var(--border-color);">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h3>Playlists</h3>
+            <button class="btn-secondary" onclick="createPlaylist()" style="padding: 2px 8px;">+</button>
+        </div>
+        <div id="playlist-nav"></div>
     </div>
 
     <div class="main-content">
-        <input type="text" id="search-input" class="search-bar" placeholder="Search tracks or artists...">
-        <h2 id="view-title">All Tracks</h2>
-        <div id="content-area" class="track-list">
+        <div id="expanded-view" class="expanded-view">
+            <div class="cover-art-container">
+                <img id="cover-art" src="" alt="Album Art">
+                <h2 id="expanded-title" style="margin-bottom: 5px;">No track playing</h2>
+                <p id="expanded-artist" style="color: var(--accent-color); margin-top: 0;"></p>
+                
+                <div class="censor-toggle">
+                    <input type="checkbox" id="censor-checkbox">
+                    <label for="censor-checkbox">Censor Explicit Lyrics</label>
+                </div>
             </div>
+            <div class="lyrics-container" id="lyrics-box">
+                Play a song to load lyrics...
+            </div>
+        </div>
+
+        <h2 id="view-title">All Tracks</h2>
+        <div id="content-area"></div>
     </div>
 
     <div class="player-bar">
-        <div class="now-playing" id="now-playing-title">No track playing</div>
+        <div class="now-playing">
+            <img id="mini-cover" src="" alt="">
+            <div>
+                <strong id="now-playing-title">No track playing</strong><br>
+                <small id="now-playing-artist"></small>
+            </div>
+        </div>
         <div class="controls">
             <button id="btn-play" class="btn-primary">Play</button>
             <button id="btn-pause" class="btn-secondary">Pause</button>
+            <button id="btn-expand" class="btn-secondary">⛶ Expand</button>
         </div>
     </div>
 
-    <iframe id="sc-widget" width="100%" height="166" scrolling="no" frameborder="no" allow="autoplay"
-            src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/293&auto_play=false">
-    </iframe>
-
+    <iframe id="sc-widget" src="https://w.soundcloud.com/player/?url=https%3A//api.soundcloud.com/tracks/293&auto_play=false"></iframe>
     <script src="https://w.soundcloud.com/player/api.js"></script>
 
     <script>
-        // 1. Our "Mock Database" (Since we don't have REST API access)
-        const trackDatabase = [
-            { id: 1, title: "8-bit Adventure", artist: "RetroGamer", url: "https://api.soundcloud.com/tracks/293" },
-            { id: 2, title: "Lofi Study Beats", artist: "ChillVibes", url: "https://api.soundcloud.com/tracks/113840748" },
-            { id: 3, title: "Synthwave City", artist: "RetroGamer", url: "https://api.soundcloud.com/tracks/28131846" },
-            { id: 4, title: "Acoustic Sunrise", artist: "AcousticMinds", url: "https://api.soundcloud.com/tracks/13158665" }
-        ];
-
-        let myPlaylist = [];
+        // --- 1. App State & Init ---
         let currentWidget = null;
+        let isExpanded = false;
+        let parsedLyrics = []; // Holds the synced lyrics data
+        let currentLyricIndex = -1;
+        let isCensoring = false;
 
-        // 2. Initialize App
+        // List of words to censor
+        const badWords = ['fuck', 'fucking', 'shit', 'bitch', 'ass', 'damn', 'crap', 'whore', 'slut'];
+        // Create a regex that matches any of the bad words (case insensitive, whole words)
+        const censorRegex = new RegExp("\\b(" + badWords.join("|") + ")\\b", "gi");
+
+        // Real song titles so the open LRCLIB API can actually find them
+        const trackDatabase = [
+            { id: 1, title: "Creep", artist: "Radiohead", url: "https://api.soundcloud.com/tracks/293" }, // Has explicit words
+            { id: 2, title: "Never Gonna Give You Up", artist: "Rick Astley", url: "https://api.soundcloud.com/tracks/113840748" },
+            { id: 3, title: "Bohemian Rhapsody", artist: "Queen", url: "https://api.soundcloud.com/tracks/28131846" }
+        ];
+        let playlists = { "Favorites": [] };
+
         document.addEventListener('DOMContentLoaded', () => {
-            // Setup SoundCloud Widget
-            const iframe = document.getElementById('sc-widget');
-            currentWidget = SC.Widget(iframe);
+            initTheme();
+            renderPlaylistNav();
+            renderView('home');
 
-            // Bind Player Controls
+            currentWidget = SC.Widget(document.getElementById('sc-widget'));
+
             document.getElementById('btn-play').addEventListener('click', () => currentWidget.play());
             document.getElementById('btn-pause').addEventListener('click', () => currentWidget.pause());
+            
+            document.getElementById('btn-expand').addEventListener('click', () => {
+                isExpanded = !isExpanded;
+                document.getElementById('expanded-view').classList.toggle('active');
+                document.getElementById('btn-expand').innerText = isExpanded ? "▼ Collapse" : "⛶ Expand";
+            });
 
-            // Setup Search
-            document.getElementById('search-input').addEventListener('input', handleSearch);
+            document.getElementById('censor-checkbox').addEventListener('change', (e) => {
+                isCensoring = e.target.checked;
+                renderLyricsToScreen(); // Re-render current lyrics with new censor state
+            });
 
-            // Setup Theme Toggle
-            document.getElementById('theme-toggle').addEventListener('click', toggleTheme);
-
-            // Initial Render
-            renderView('home');
+            // Handle SoundCloud Events
+            currentWidget.bind(SC.Widget.Events.PLAY, fetchArtwork);
+            currentWidget.bind(SC.Widget.Events.PLAY_PROGRESS, handlePlaybackProgress);
         });
 
-        // 3. View Management
-        function renderView(viewName, filterData = null) {
-            const contentArea = document.getElementById('content-area');
-            const viewTitle = document.getElementById('view-title');
-            contentArea.innerHTML = ''; // Clear current content
+        // --- 2. Lyrics Fetching & Syncing (LRCLIB API) ---
+        async function fetchRealLyrics(title, artist) {
+            const lyricsBox = document.getElementById('lyrics-box');
+            lyricsBox.innerHTML = "Searching for lyrics...";
+            parsedLyrics = [];
+            currentLyricIndex = -1;
 
-            let tracksToRender = [];
-
-            if (viewName === 'home') {
-                viewTitle.innerText = "All Tracks";
-                tracksToRender = trackDatabase;
-            } else if (viewName === 'playlist') {
-                viewTitle.innerText = "My Playlist";
-                tracksToRender = myPlaylist;
-            } else if (viewName === 'artist') {
-                viewTitle.innerText = `Artist: ${filterData}`;
-                tracksToRender = trackDatabase.filter(t => t.artist === filterData);
-            } else if (viewName === 'search') {
-                viewTitle.innerText = `Search Results`;
-                tracksToRender = filterData;
-            }
-
-            // Generate HTML for tracks
-            if (tracksToRender.length === 0) {
-                contentArea.innerHTML = '<p>No tracks found.</p>';
-                return;
-            }
-
-            tracksToRender.forEach(track => {
-                const trackDiv = document.createElement('div');
-                trackDiv.className = 'track-item';
+            try {
+                // Free, open API for lyrics
+                const url = `https://lrclib.net/api/get?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
+                const response = await fetch(url);
                 
-                trackDiv.innerHTML = `
-                    <div class="track-info">
-                        <h4>${track.title}</h4>
-                        <p onclick="renderView('artist', '${track.artist}')">${track.artist}</p>
-                    </div>
-                    <div class="track-actions">
-                        <button class="btn-primary" onclick="playTrack('${track.url}', '${track.title}', '${track.artist}')">Play</button>
-                        <button class="btn-secondary" onclick="addToPlaylist(${track.id})">+</button>
-                    </div>
-                `;
-                contentArea.appendChild(trackDiv);
+                if (!response.ok) throw new Error('Lyrics not found');
+                
+                const data = await response.json();
+                
+                if (data.syncedLyrics) {
+                    parseLRC(data.syncedLyrics);
+                    renderLyricsToScreen();
+                } else if (data.plainLyrics) {
+                    // Fallback if no timestamps are available
+                    lyricsBox.innerHTML = applyCensorship(data.plainLyrics).replace(/\n/g, '<br><br>');
+                } else {
+                    lyricsBox.innerHTML = "Instrumental or no lyrics available.";
+                }
+            } catch (error) {
+                lyricsBox.innerHTML = "Could not find lyrics for this track in the open database.";
+            }
+        }
+
+        // Parses the [00:15.22] LRC format into an array of objects
+        function parseLRC(lrcString) {
+            const lines = lrcString.split('\n');
+            const timeRegex = /\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/;
+            
+            lines.forEach(line => {
+                const match = line.match(timeRegex);
+                if (match) {
+                    const minutes = parseInt(match[1], 10);
+                    const seconds = parseFloat(match[2]);
+                    const text = match[3].trim();
+                    
+                    if (text) {
+                        parsedLyrics.push({
+                            time: (minutes * 60) + seconds, // Time in total seconds
+                            text: text
+                        });
+                    }
+                }
             });
         }
 
-        // 4. Feature Logic
-        function playTrack(scUrl, title, artist) {
-            // Update UI
-            document.getElementById('now-playing-title').innerText = `${title} - ${artist}`;
-            
-            // Load new URL into SoundCloud Widget and play
-            currentWidget.load(scUrl, {
-                auto_play: true,
-                hide_related: true,
-                show_comments: false,
-                show_user: false,
-                show_reposts: false
+        function renderLyricsToScreen() {
+            const lyricsBox = document.getElementById('lyrics-box');
+            lyricsBox.innerHTML = '';
+
+            if (parsedLyrics.length === 0) return;
+
+            parsedLyrics.forEach((lyricObj, index) => {
+                const div = document.createElement('div');
+                div.className = 'lyric-line';
+                div.id = `lyric-${index}`;
+                // Apply censorship filter before rendering
+                div.innerText = applyCensorship(lyricObj.text);
+                
+                // Allow user to click a lyric to seek to that part (Optional Bonus!)
+                div.onclick = () => {
+                    currentWidget.seekTo(lyricObj.time * 1000); 
+                };
+
+                lyricsBox.appendChild(div);
             });
+        }
+
+        // Syncs the UI to the music progress
+        function handlePlaybackProgress(event) {
+            if (parsedLyrics.length === 0) return;
+            
+            const currentSeconds = event.currentPosition / 1000;
+            let activeIndex = -1;
+
+            // Find the lyric line that matches the current time
+            for (let i = 0; i < parsedLyrics.length; i++) {
+                if (currentSeconds >= parsedLyrics[i].time) {
+                    activeIndex = i;
+                } else {
+                    break;
+                }
+            }
+
+            // If the active line changed, update UI
+            if (activeIndex !== -1 && activeIndex !== currentLyricIndex) {
+                // Remove active class from old
+                if (currentLyricIndex !== -1) {
+                    const oldEl = document.getElementById(`lyric-${currentLyricIndex}`);
+                    if (oldEl) oldEl.classList.remove('active');
+                }
+                
+                // Add active class to new
+                const newEl = document.getElementById(`lyric-${activeIndex}`);
+                if (newEl) {
+                    newEl.classList.add('active');
+                    // Scroll it smoothly into the center of the container
+                    newEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                
+                currentLyricIndex = activeIndex;
+            }
+        }
+
+        // --- 3. Censorship Engine ---
+        function applyCensorship(text) {
+            if (!isCensoring) return text;
+            
+            // Replaces bad words with asterisks matching the word length
+            return text.replace(censorRegex, match => '*'.repeat(match.length));
+        }
+
+        // --- 4. Core Player Functions ---
+        function playTrack(scUrl, title, artist) {
+            document.getElementById('now-playing-title').innerText = title;
+            document.getElementById('now-playing-artist').innerText = artist;
+            document.getElementById('expanded-title').innerText = title;
+            document.getElementById('expanded-artist').innerText = artist;
+            
+            currentWidget.load(scUrl, { auto_play: true });
+            fetchRealLyrics(title, artist);
+        }
+
+        function fetchArtwork() {
+            currentWidget.getCurrentSound(function(sound) {
+                if (sound && sound.artwork_url) {
+                    const hiResArt = sound.artwork_url.replace('-large', '-t500x500');
+                    document.getElementById('cover-art').src = hiResArt;
+                    document.getElementById('mini-cover').src = sound.artwork_url;
+                }
+            });
+        }
+
+        // --- 5. Playlists & UI Rendering (Unchanged) ---
+        function initTheme() {
+            const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+            if (prefersDark) document.body.setAttribute('data-theme', 'dark');
+            document.getElementById('theme-toggle').addEventListener('click', () => {
+                const isDark = document.body.getAttribute('data-theme') === 'dark';
+                document.body.setAttribute('data-theme', isDark ? 'light' : 'dark');
+            });
+        }
+
+        function createPlaylist() {
+            const name = prompt("Enter playlist name:");
+            if (name && !playlists[name]) { playlists[name] = []; renderPlaylistNav(); }
+        }
+
+        function renderPlaylistNav() {
+            const nav = document.getElementById('playlist-nav');
+            nav.innerHTML = '';
+            for (let listName in playlists) {
+                const div = document.createElement('div');
+                div.className = 'nav-item';
+                div.innerText = `🎵 ${listName}`;
+                div.onclick = () => renderView('playlist', listName);
+                nav.appendChild(div);
+            }
         }
 
         function addToPlaylist(trackId) {
-            const track = trackDatabase.find(t => t.id === trackId);
-            if (!myPlaylist.find(t => t.id === trackId)) {
-                myPlaylist.push(track);
-                alert(`${track.title} added to your playlist!`);
-            } else {
-                alert('Track is already in your playlist.');
+            const playlistNames = Object.keys(playlists);
+            if (playlistNames.length === 0) return alert("Create a playlist first!");
+            const listName = prompt(`Add to which playlist? \n(${playlistNames.join(', ')})`, playlistNames[0]);
+            if (playlists[listName]) {
+                const track = trackDatabase.find(t => t.id === trackId);
+                if (!playlists[listName].find(t => t.id === trackId)) {
+                    playlists[listName].push(track); alert(`Added to ${listName}`);
+                } else { alert("Already in this playlist."); }
             }
         }
 
-        function handleSearch(e) {
-            const query = e.target.value.toLowerCase();
-            if (query === '') {
-                renderView('home');
-                return;
-            }
-            
-            const results = trackDatabase.filter(track => 
-                track.title.toLowerCase().includes(query) || 
-                track.artist.toLowerCase().includes(query)
-            );
-            renderView('search', results);
-        }
+        function renderView(viewType, filterData = null) {
+            const contentArea = document.getElementById('content-area');
+            const viewTitle = document.getElementById('view-title');
+            contentArea.innerHTML = '';
+            let tracks = [];
+            if (viewType === 'home') { viewTitle.innerText = "All Tracks"; tracks = trackDatabase; }
+            if (viewType === 'playlist') { viewTitle.innerText = filterData; tracks = playlists[filterData]; }
+            if (tracks.length === 0) return contentArea.innerHTML = '<p>No tracks here yet.</p>';
 
-        function toggleTheme() {
-            const body = document.body;
-            if (body.getAttribute('data-theme') === 'dark') {
-                body.removeAttribute('data-theme');
-            } else {
-                body.setAttribute('data-theme', 'dark');
-            }
+            tracks.forEach(track => {
+                const div = document.createElement('div'); div.className = 'track-item';
+                div.innerHTML = `
+                    <div><h4>${track.title}</h4><p style="margin:0; font-size:0.9em;">${track.artist}</p></div>
+                    <div>
+                        <button class="btn-primary" onclick="playTrack('${track.url}', '${track.title}', '${track.artist}')">Play</button>
+                        <button class="btn-secondary" onclick="addToPlaylist(${track.id})">+</button>
+                    </div>`;
+                contentArea.appendChild(div);
+            });
         }
     </script>
-
 </body>
 </html>
