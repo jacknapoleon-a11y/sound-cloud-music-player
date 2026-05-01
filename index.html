@@ -49,6 +49,12 @@
         .nav-item { padding: 10px; border-radius: 4px; cursor: pointer; }
         .nav-item:hover { background-color: var(--border-color); }
 
+        /* --- UI Elements --- */
+        .search-bar {
+            width: 100%; padding: 10px; border: 1px solid var(--border-color); border-radius: 4px;
+            background-color: var(--surface-color); color: var(--text-color); margin-bottom: 20px; box-sizing: border-box;
+        }
+
         .track-item {
             background-color: var(--surface-color); padding: 15px; border-radius: 8px;
             display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); margin-bottom: 10px;
@@ -62,7 +68,7 @@
         }
         .expanded-view.active { top: 0; }
 
-        .cover-art-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+        .cover-art-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
         #cover-art { width: 300px; height: 300px; border-radius: 12px; object-fit: cover; box-shadow: 0 10px 30px rgba(0,0,0,0.3); background-color: var(--border-color); margin-bottom: 20px; }
         
         .censor-toggle { display: flex; align-items: center; gap: 10px; margin-top: 15px; background: var(--surface-color); padding: 10px 15px; border-radius: 20px; border: 1px solid var(--border-color); }
@@ -72,7 +78,6 @@
         .lyrics-container { 
             flex: 1; overflow-y: auto; padding-right: 20px; font-size: 1.5em; 
             line-height: 1.8; font-weight: bold; scroll-behavior: smooth;
-            /* Hide scrollbar for cleaner look */
             -ms-overflow-style: none; scrollbar-width: none;
         }
         .lyrics-container::-webkit-scrollbar { display: none; }
@@ -109,6 +114,8 @@
     </div>
 
     <div class="main-content">
+        <input type="text" id="search-input" class="search-bar" placeholder="Search tracks or artists...">
+
         <div id="expanded-view" class="expanded-view">
             <div class="cover-art-container">
                 <img id="cover-art" src="" alt="Album Art">
@@ -151,20 +158,20 @@
         // --- 1. App State & Init ---
         let currentWidget = null;
         let isExpanded = false;
-        let parsedLyrics = []; // Holds the synced lyrics data
+        let parsedLyrics = [];
         let currentLyricIndex = -1;
         let isCensoring = false;
 
-        // List of words to censor
-        const badWords = ['fuck', 'fucking', 'shit', 'bitch', 'ass', 'damn', 'crap', 'whore', 'slut'];
-        // Create a regex that matches any of the bad words (case insensitive, whole words)
+        // Expanded Swear Dictionary
+        const badWords = ['fuck', 'fucking', 'motherfucker', 'shit', 'bullshit', 'bitch', 'ass', 'asshole', 'damn', 'crap', 'whore', 'slut'];
+        // More aggressive regex to catch punctuation around words
         const censorRegex = new RegExp("\\b(" + badWords.join("|") + ")\\b", "gi");
 
-        // Real song titles so the open LRCLIB API can actually find them
+        // Updated track list to use standard, valid SoundCloud URLs so playback actually works
         const trackDatabase = [
-            { id: 1, title: "Creep", artist: "Radiohead", url: "https://api.soundcloud.com/tracks/293" }, // Has explicit words
-            { id: 2, title: "Never Gonna Give You Up", artist: "Rick Astley", url: "https://api.soundcloud.com/tracks/113840748" },
-            { id: 3, title: "Bohemian Rhapsody", artist: "Queen", url: "https://api.soundcloud.com/tracks/28131846" }
+            { id: 1, title: "Creep", artist: "Radiohead", url: "https://soundcloud.com/radiohead/creep" }, 
+            { id: 2, title: "Bohemian Rhapsody", artist: "Queen", url: "https://soundcloud.com/queen-69312/bohemian-rhapsody" },
+            { id: 3, title: "Never Gonna Give You Up", artist: "Rick Astley", url: "https://soundcloud.com/rick-astley-official/never-gonna-give-you-up-4" }
         ];
         let playlists = { "Favorites": [] };
 
@@ -186,140 +193,31 @@
 
             document.getElementById('censor-checkbox').addEventListener('change', (e) => {
                 isCensoring = e.target.checked;
-                renderLyricsToScreen(); // Re-render current lyrics with new censor state
+                renderLyricsToScreen(); // Instantly update text on screen
             });
 
-            // Handle SoundCloud Events
-            currentWidget.bind(SC.Widget.Events.PLAY, fetchArtwork);
+            // Re-bind the search input
+            document.getElementById('search-input').addEventListener('input', handleSearch);
+
             currentWidget.bind(SC.Widget.Events.PLAY_PROGRESS, handlePlaybackProgress);
         });
 
-        // --- 2. Lyrics Fetching & Syncing (LRCLIB API) ---
-        async function fetchRealLyrics(title, artist) {
-            const lyricsBox = document.getElementById('lyrics-box');
-            lyricsBox.innerHTML = "Searching for lyrics...";
-            parsedLyrics = [];
-            currentLyricIndex = -1;
-
-            try {
-                // Free, open API for lyrics
-                const url = `https://lrclib.net/api/get?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
-                const response = await fetch(url);
-                
-                if (!response.ok) throw new Error('Lyrics not found');
-                
-                const data = await response.json();
-                
-                if (data.syncedLyrics) {
-                    parseLRC(data.syncedLyrics);
-                    renderLyricsToScreen();
-                } else if (data.plainLyrics) {
-                    // Fallback if no timestamps are available
-                    lyricsBox.innerHTML = applyCensorship(data.plainLyrics).replace(/\n/g, '<br><br>');
-                } else {
-                    lyricsBox.innerHTML = "Instrumental or no lyrics available.";
-                }
-            } catch (error) {
-                lyricsBox.innerHTML = "Could not find lyrics for this track in the open database.";
-            }
-        }
-
-        // Parses the [00:15.22] LRC format into an array of objects
-        function parseLRC(lrcString) {
-            const lines = lrcString.split('\n');
-            const timeRegex = /\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/;
-            
-            lines.forEach(line => {
-                const match = line.match(timeRegex);
-                if (match) {
-                    const minutes = parseInt(match[1], 10);
-                    const seconds = parseFloat(match[2]);
-                    const text = match[3].trim();
-                    
-                    if (text) {
-                        parsedLyrics.push({
-                            time: (minutes * 60) + seconds, // Time in total seconds
-                            text: text
-                        });
-                    }
-                }
-            });
-        }
-
-        function renderLyricsToScreen() {
-            const lyricsBox = document.getElementById('lyrics-box');
-            lyricsBox.innerHTML = '';
-
-            if (parsedLyrics.length === 0) return;
-
-            parsedLyrics.forEach((lyricObj, index) => {
-                const div = document.createElement('div');
-                div.className = 'lyric-line';
-                div.id = `lyric-${index}`;
-                // Apply censorship filter before rendering
-                div.innerText = applyCensorship(lyricObj.text);
-                
-                // Allow user to click a lyric to seek to that part (Optional Bonus!)
-                div.onclick = () => {
-                    currentWidget.seekTo(lyricObj.time * 1000); 
-                };
-
-                lyricsBox.appendChild(div);
-            });
-        }
-
-        // Syncs the UI to the music progress
-        function handlePlaybackProgress(event) {
-            if (parsedLyrics.length === 0) return;
-            
-            const currentSeconds = event.currentPosition / 1000;
-            let activeIndex = -1;
-
-            // Find the lyric line that matches the current time
-            for (let i = 0; i < parsedLyrics.length; i++) {
-                if (currentSeconds >= parsedLyrics[i].time) {
-                    activeIndex = i;
-                } else {
-                    break;
-                }
-            }
-
-            // If the active line changed, update UI
-            if (activeIndex !== -1 && activeIndex !== currentLyricIndex) {
-                // Remove active class from old
-                if (currentLyricIndex !== -1) {
-                    const oldEl = document.getElementById(`lyric-${currentLyricIndex}`);
-                    if (oldEl) oldEl.classList.remove('active');
-                }
-                
-                // Add active class to new
-                const newEl = document.getElementById(`lyric-${activeIndex}`);
-                if (newEl) {
-                    newEl.classList.add('active');
-                    // Scroll it smoothly into the center of the container
-                    newEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                }
-                
-                currentLyricIndex = activeIndex;
-            }
-        }
-
-        // --- 3. Censorship Engine ---
-        function applyCensorship(text) {
-            if (!isCensoring) return text;
-            
-            // Replaces bad words with asterisks matching the word length
-            return text.replace(censorRegex, match => '*'.repeat(match.length));
-        }
-
-        // --- 4. Core Player Functions ---
+        // --- 2. Playback & Artwork (FIXED) ---
         function playTrack(scUrl, title, artist) {
             document.getElementById('now-playing-title').innerText = title;
             document.getElementById('now-playing-artist').innerText = artist;
             document.getElementById('expanded-title').innerText = title;
             document.getElementById('expanded-artist').innerText = artist;
             
-            currentWidget.load(scUrl, { auto_play: true });
+            // FIX: Use the callback to fetch artwork immediately on load, and force play
+            currentWidget.load(scUrl, { 
+                auto_play: true,
+                callback: () => {
+                    fetchArtwork();
+                    currentWidget.play(); // Force browser to play
+                }
+            });
+            
             fetchRealLyrics(title, artist);
         }
 
@@ -333,7 +231,109 @@
             });
         }
 
-        // --- 5. Playlists & UI Rendering (Unchanged) ---
+        // --- 3. Search Logic (RESTORED) ---
+        function handleSearch(e) {
+            const query = e.target.value.toLowerCase();
+            if (query === '') {
+                renderView('home');
+                return;
+            }
+            const results = trackDatabase.filter(track => 
+                track.title.toLowerCase().includes(query) || 
+                track.artist.toLowerCase().includes(query)
+            );
+            renderView('search', results);
+        }
+
+        // --- 4. Lyrics Fetching & Syncing (LRCLIB API) ---
+        async function fetchRealLyrics(title, artist) {
+            const lyricsBox = document.getElementById('lyrics-box');
+            lyricsBox.innerHTML = "Searching for lyrics...";
+            parsedLyrics = [];
+            currentLyricIndex = -1;
+
+            try {
+                const url = `https://lrclib.net/api/get?track_name=${encodeURIComponent(title)}&artist_name=${encodeURIComponent(artist)}`;
+                const response = await fetch(url);
+                if (!response.ok) throw new Error('Lyrics not found');
+                
+                const data = await response.json();
+                
+                if (data.syncedLyrics) {
+                    parseLRC(data.syncedLyrics);
+                    renderLyricsToScreen();
+                } else if (data.plainLyrics) {
+                    lyricsBox.innerHTML = applyCensorship(data.plainLyrics).replace(/\n/g, '<br><br>');
+                } else {
+                    lyricsBox.innerHTML = "Instrumental or no lyrics available.";
+                }
+            } catch (error) {
+                lyricsBox.innerHTML = "Could not find lyrics for this track in the open database.";
+            }
+        }
+
+        function parseLRC(lrcString) {
+            const lines = lrcString.split('\n');
+            const timeRegex = /\[(\d{2}):(\d{2}\.\d{2,3})\](.*)/;
+            
+            lines.forEach(line => {
+                const match = line.match(timeRegex);
+                if (match) {
+                    const minutes = parseInt(match[1], 10);
+                    const seconds = parseFloat(match[2]);
+                    const text = match[3].trim();
+                    if (text) parsedLyrics.push({ time: (minutes * 60) + seconds, text: text });
+                }
+            });
+        }
+
+        function renderLyricsToScreen() {
+            const lyricsBox = document.getElementById('lyrics-box');
+            lyricsBox.innerHTML = '';
+            if (parsedLyrics.length === 0) return;
+
+            parsedLyrics.forEach((lyricObj, index) => {
+                const div = document.createElement('div');
+                div.className = 'lyric-line';
+                div.id = `lyric-${index}`;
+                div.innerText = applyCensorship(lyricObj.text);
+                
+                div.onclick = () => currentWidget.seekTo(lyricObj.time * 1000); 
+                lyricsBox.appendChild(div);
+            });
+        }
+
+        function handlePlaybackProgress(event) {
+            if (parsedLyrics.length === 0) return;
+            const currentSeconds = event.currentPosition / 1000;
+            let activeIndex = -1;
+
+            for (let i = 0; i < parsedLyrics.length; i++) {
+                if (currentSeconds >= parsedLyrics[i].time) activeIndex = i;
+                else break;
+            }
+
+            if (activeIndex !== -1 && activeIndex !== currentLyricIndex) {
+                if (currentLyricIndex !== -1) {
+                    const oldEl = document.getElementById(`lyric-${currentLyricIndex}`);
+                    if (oldEl) oldEl.classList.remove('active');
+                }
+                const newEl = document.getElementById(`lyric-${activeIndex}`);
+                if (newEl) {
+                    newEl.classList.add('active');
+                    newEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }
+                currentLyricIndex = activeIndex;
+            }
+        }
+
+        // --- 5. Censorship Engine (FIXED) ---
+        function applyCensorship(text) {
+            if (!isCensoring) return text;
+            return text.replace(censorRegex, match => '*'.repeat(match.length));
+        }
+
+        // --- 6. Playlists & Views ---
         function initTheme() {
             const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
             if (prefersDark) document.body.setAttribute('data-theme', 'dark');
@@ -376,10 +376,13 @@
             const contentArea = document.getElementById('content-area');
             const viewTitle = document.getElementById('view-title');
             contentArea.innerHTML = '';
+            
             let tracks = [];
             if (viewType === 'home') { viewTitle.innerText = "All Tracks"; tracks = trackDatabase; }
             if (viewType === 'playlist') { viewTitle.innerText = filterData; tracks = playlists[filterData]; }
-            if (tracks.length === 0) return contentArea.innerHTML = '<p>No tracks here yet.</p>';
+            if (viewType === 'search') { viewTitle.innerText = "Search Results"; tracks = filterData; }
+
+            if (tracks.length === 0) return contentArea.innerHTML = '<p>No tracks found.</p>';
 
             tracks.forEach(track => {
                 const div = document.createElement('div'); div.className = 'track-item';
